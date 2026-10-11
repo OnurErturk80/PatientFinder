@@ -1,0 +1,47 @@
+<!doctype html>
+<html lang="tr"><head><meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>Hasta Geçmişi</title>
+<style>
+:root{--bg:#f6f7f9;--fg:#1c2330;--card:#fff;--mut:#667085;--line:#e3e6ec;--warn:#b54708;--warnbg:#fffaeb;--ok:#067647}
+@media(prefers-color-scheme:dark){:root{--bg:#12151b;--fg:#e8ebf0;--card:#1b2029;--mut:#98a2b3;--line:#2a313d;--warn:#fdb022;--warnbg:#2b2210;--ok:#47cd89}}
+*{box-sizing:border-box}body{margin:0;background:var(--bg);color:var(--fg);font:16px/1.45 system-ui,sans-serif}
+main{max-width:760px;margin:0 auto;padding:16px}
+input{width:100%;padding:14px;font-size:18px;border:1px solid var(--line);border-radius:10px;background:var(--card);color:var(--fg)}
+.card{background:var(--card);border:1px solid var(--line);border-radius:12px;padding:14px;margin:12px 0}
+.row{display:block;width:100%;text-align:left;background:var(--card);color:inherit;border:1px solid var(--line);border-radius:10px;padding:14px;margin:8px 0;font-size:16px;min-height:48px}
+.mut{color:var(--mut);font-size:14px}.warn{background:var(--warnbg);color:var(--warn);padding:8px 10px;border-radius:8px;margin:6px 0}
+details{border-top:1px solid var(--line);padding:8px 0}summary{cursor:pointer;min-height:32px}
+h2{font-size:17px;margin:20px 0 4px}button.sm{padding:8px 12px;margin:4px 4px 0 0;border-radius:8px;border:1px solid var(--line);background:var(--card);color:inherit}
+table{width:100%;border-collapse:collapse;font-size:14px}td,th{padding:6px;border-bottom:1px solid var(--line);text-align:left}
+</style></head><body><main>
+<input id="q" placeholder="Ad, soyad, eş adı veya protokol no" autofocus autocomplete="off">
+<div id="list"></div><div id="view"></div>
+</main>
+<script>
+const $=s=>document.querySelector(s), esc=s=>String(s??'').replace(/[&<>"]/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;'}[c]));
+let t;$('#q').addEventListener('input',()=>{clearTimeout(t);t=setTimeout(find,200)});
+async function find(){
+  const q=$('#q').value.trim();$('#view').innerHTML='';
+  if(!q){$('#list').innerHTML='';return}
+  const r=await (await fetch('/api/search?q='+encodeURIComponent(q))).json();
+  $('#list').innerHTML=r.length?r.map(x=>`<button class="row" data-k="${esc(x.key)}"><b>${esc(x.female)||'—'}</b> · eş: ${esc(x.male)||'—'}<div class="mut">${x.records} kayıt · ${esc(x.first)||'?'} – ${esc(x.last)||'?'}${x.birth.length?' · d.t. '+esc(x.birth.join(', ')):''}</div></button>`).join(''):'<p class="mut">Eşleşen kayıt yok.</p>';
+  document.querySelectorAll('.row').forEach(b=>b.onclick=()=>open(b.dataset.k));
+}
+async function open(key){
+  const p=await (await fetch('/api/patient?key='+encodeURIComponent(key))).json();
+  $('#list').innerHTML='';
+  const inv=Object.values(p.inventory);
+  $('#view').innerHTML=`<div class="card"><b>${esc(p.header[0])}</b>
+   ${p.inventory_lines.map(l=>l.startsWith('Doğrulanmalı')?`<div class="warn">${esc(l)}</div>`:`<div>${esc(l)}</div>`).join('')}
+   <div class="mut">${esc(p.note)}</div></div>
+   <h2>Tedaviler</h2>`+p.cycles.map(c=>`<details><summary><b>${esc(c.cycle_date||c.month)}</b> · ${esc(c.treatment_type||p.na)} <span class="mut">${esc(c.outcome||'sonuç: kayıtta yok')}</span></summary>
+   <table>${[['Uyarı/protokol',c.protocol],['Toplanan oosit',c.oocytes],['MII',c.mii],['Döllenme',c.fertilized],['Embriyo',c.embryos],['Kalite',c.embryo_quality],['Transfer',[c.transfer_day,c.transfer_count].filter(x=>x!=null).join(' · ')||null]].map(([k,v])=>`<tr><th>${k}</th><td>${esc(v??p.na)}</td></tr>`).join('')}</table>
+   <div class="mut">Kaynak: ${esc(c.source.file.split(/[\\/]/).pop())} · ${esc(c.source.ref)}</div></details>`).join('')
+  +`<h2>Dondurulmuş örnek envanteri</h2>`+(inv.length?inv.map(d=>`<div class="card"><b>${esc(d.type_tr)}</b>: dondurulan ${d.frozen}, çözülen ${d.thaw}, kullanılan ${d.use}, atılan ${d.discard}, devredilen ${d.transfer_out} → <b>${d.remaining}</b>${d.verify?' <span class="warn">Doğrulanmalı</span>':''}
+   ${d.warnings.map(w=>`<div class="warn">${esc(w)}</div>`).join('')}
+   <details><summary class="mut">Kaynak kayıtlar (${d.sources.length})</summary><table>${d.sources.map(s=>`<tr><td>${esc(s.date)}</td><td>${esc(s.kind)}</td><td>${s.count??'?'}</td><td class="mut">${esc(s.file.split(/[\\/]/).pop())} ${esc(s.ref)}</td></tr>`).join('')}</table></details></div>`).join(''):'<p class="mut">Kayıt yok.</p>')
+  +(p.similar.length?`<h2>Benzer kayıtlar (karar sizin)</h2>`+p.similar.map(s=>`<div class="card">${esc(s.female)} · eş: ${esc(s.male)}<br><button class="sm" data-a="${esc(p.key)}" data-b="${esc(s.key)}" data-v="merge">Aynı hasta, birleştir</button><button class="sm" data-a="${esc(p.key)}" data-b="${esc(s.key)}" data-v="separate">Farklı kişi</button></div>`).join(''):'');
+  document.querySelectorAll('button.sm').forEach(b=>b.onclick=async()=>{await fetch('/api/decision',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({key_a:b.dataset.a,key_b:b.dataset.b,verdict:b.dataset.v})});open(key)});
+}
+</script></body></html>
