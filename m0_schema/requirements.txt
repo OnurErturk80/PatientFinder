@@ -1,0 +1,5 @@
+access-parser>=0.0.6
+construct
+tabulate
+# Yalnızca Windows (ikinci arka uç, ACE sürücüsü gerekir):
+pyodbc; sys_platform == "win32"
