@@ -1,13 +1,20 @@
 """Hasta/çift arama ve eşleştirme. ASLA otomatik birleştirme yapmaz."""
 from __future__ import annotations
 
-from collections import defaultdict
+from collections import Counter, defaultdict
 
 from .normalize import norm
 
 
 def couple_key(f_norm: str, m_norm: str) -> str:
     return f"{f_norm}|{m_norm}"
+
+
+def row_key(r) -> str:
+    """DOSYA NO kalıcı hasta numarasıdır: varsa anahtar odur (yazım hatalarına dayanıklı).
+    Yoksa ad+eş adı. Anahtar her zaman '|' içerir."""
+    no = (r["protocol_no"] or "").strip()
+    return f"#{no}|" if no else couple_key(r["f_norm"], r["m_norm"])
 
 
 def search(conn, q: str, limit: int = 50) -> list[dict]:
@@ -17,24 +24,25 @@ def search(conn, q: str, limit: int = 50) -> list[dict]:
         return []
     groups: dict[str, dict] = {}
     for table in ("cycle", "sample_event"):
-        for r in conn.execute(f"SELECT f_norm, m_norm, protocol_no, month, "
-                              f"{'birth_date' if table == 'cycle' else 'NULL'} AS birth FROM {table}"):
+        birth = "birth_date" if table == "cycle" else "NULL"
+        for r in conn.execute(f"SELECT f_norm, m_norm, protocol_no, month, {birth} AS birth FROM {table}"):
             hay = f"{r['f_norm']} {r['m_norm']} {norm(r['protocol_no'])}"
             if all(t in hay for t in tokens):
-                k = couple_key(r["f_norm"], r["m_norm"])
-                g = groups.setdefault(k, {"key": k, "female": r["f_norm"], "male": r["m_norm"],
-                                          "months": set(), "birth": set(), "n": 0})
+                g = groups.setdefault(row_key(r), {"f": Counter(), "m": Counter(), "months": set(),
+                                                   "birth": set(), "n": 0, "no": r["protocol_no"]})
                 g["n"] += 1
+                g["f"][r["f_norm"]] += 1
+                g["m"][r["m_norm"]] += 1
                 if r["month"]:
                     g["months"].add(r["month"])
                 if r["birth"]:
                     g["birth"].add(r["birth"])
     out = []
-    for g in groups.values():
+    for k, g in groups.items():
         m = sorted(g["months"])
-        out.append({"key": g["key"], "female": g["female"], "male": g["male"], "records": g["n"],
-                    "first": m[0] if m else None, "last": m[-1] if m else None,
-                    "birth": sorted(g["birth"])})
+        out.append({"key": k, "female": g["f"].most_common(1)[0][0], "male": g["m"].most_common(1)[0][0],
+                    "protocol_no": g["no"], "records": g["n"], "first": m[0] if m else None,
+                    "last": m[-1] if m else None, "birth": sorted(g["birth"])})
     out.sort(key=lambda x: (-x["records"], x["female"]))
     return out[:limit]
 
@@ -70,18 +78,24 @@ def merged_keys(conn, key: str) -> set[str]:
 
 
 def similar_candidates(conn, key: str) -> list[dict]:
-    """Birleştirme önerisi için benzer çiftler (aynı kadın VEYA aynı eş adı). Karar verilmemişler."""
-    f, m = key.split("|", 1)
+    """Birleştirme önerisi: aynı kadın VEYA aynı eş adı taşıyan, karar verilmemiş diğer anahtarlar."""
     known = decisions(conn)
-    cands = {}
+    names: dict[str, dict] = {}
     for table in ("cycle", "sample_event"):
-        for r in conn.execute(f"SELECT DISTINCT f_norm, m_norm FROM {table}"):
-            k = couple_key(r["f_norm"], r["m_norm"])
-            if k == key or frozenset((k, key)) in known:
-                continue
-            if (f and r["f_norm"] == f) or (m and r["m_norm"] == m):
-                cands[k] = {"key": k, "female": r["f_norm"], "male": r["m_norm"]}
-    return list(cands.values())
+        for r in conn.execute(f"SELECT DISTINCT f_norm, m_norm, protocol_no FROM {table}"):
+            g = names.setdefault(row_key(r), {"f": set(), "m": set()})
+            g["f"].add(r["f_norm"])
+            g["m"].add(r["m_norm"])
+    me = names.get(key)
+    if not me:
+        return []
+    out = []
+    for k, g in names.items():
+        if k == key or frozenset((k, key)) in known:
+            continue
+        if (me["f"] & g["f"] - {""}) or (me["m"] & g["m"] - {""}):
+            out.append({"key": k, "female": sorted(g["f"])[0], "male": sorted(g["m"])[0]})
+    return out
 
 
 def patient_keys(conn, key: str) -> set[str]:

@@ -59,7 +59,7 @@ def test_duplicate_file_not_double_counted(tmp_path, monkeypatch):
     conn = db.connect()
     res = db.scan_folder(conn, str(tmp_path), make_reader())
     assert set(res.values()) == {"imported"}
-    key = "ayse yilmaz|mehmet yilmaz"
+    key = "#1234|"
     inv = inventory.for_patient(conn, key)["inventory"]["embryo"]
     assert inv["frozen"] == 3 and inv["remaining"] == 3 and not inv["verify"]
     # yedekteki adet farklı olsun
@@ -70,3 +70,17 @@ def test_duplicate_file_not_double_counted(tmp_path, monkeypatch):
 def test_treatment_type_fallbacks():
     assert treatment_type({}) == "İşlem bilgisi yok"
     assert treatment_type(row(opu=dt.datetime(2023, 1, 1))) == "OPU (yöntem belirtilmemiş)"
+
+
+def test_dosya_no_groups_typos_together(tmp_path):
+    from hastagecmisi import matching
+    a = row(opu=dt.datetime(2023, 3, 10), frozen=2)
+    b = {**row(thawed=1, transfer_date=dt.datetime(2024, 1, 5)), C["spouse"]: "Mehmed", C["last"]: "Yilmaz"}
+    conn = db.connect()
+    for name, rows in (("MART.accdb", [a]), ("OCAK.accdb", [b])):
+        p = tmp_path / name
+        p.write_bytes(name.encode())
+        db.import_file(conn, str(p), lambda path, r=rows: map_rows(path, r))
+    hits = matching.search(conn, "yilmaz")
+    assert len(hits) == 1 and hits[0]["key"] == "#1234|" and hits[0]["records"] == 4
+    assert inventory.for_patient(conn, "#1234|")["inventory"]["embryo"]["remaining"] == 1

@@ -6,7 +6,7 @@ kalan = dondurulan − (max(çözülen, kullanılan+atılan) + devredilen)
 from __future__ import annotations
 
 from .dedupe import latest_per_ident
-from .matching import patient_keys
+from .matching import patient_keys, row_key
 
 SAMPLE_TR = {"embryo": "embriyo", "oocyte": "oosit", "sperm": "sperm"}
 OUT_KINDS = ("thaw", "use", "discard", "transfer_out")
@@ -16,7 +16,7 @@ def events_for(conn, keys: set[str]) -> list[dict]:
     rows = []
     for r in conn.execute("SELECT e.*, f.path, f.mtime FROM sample_event e JOIN source_file f ON f.id=e.file_id "
                           "ORDER BY COALESCE(e.event_date, e.month), e.id"):
-        if f"{r['f_norm']}|{r['m_norm']}" in keys:
+        if row_key(r) in keys:
             rows.append(dict(r))
     return latest_per_ident(rows, lambda e: (e["ident"], e["kind"], e["sample_type"]) if e["ident"] else None,
                             compare=("count",))
