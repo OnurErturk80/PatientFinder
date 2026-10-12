@@ -1,11 +1,16 @@
 """Hasta sayfası verisi: özet kartı, zaman çizelgesi, envanter."""
 from __future__ import annotations
 
+import re
+
+from .normalize import norm
 from .dedupe import latest_per_ident
 from .inventory import for_patient
 from .matching import patient_keys, row_key, similar_candidates
 
 NA = "bilgi yok"
+# Notlarda dondurma/embriyo ifadesi: serbest metin, adet ayrıştırılmaz; yalnızca uyarı verilir
+_HINT = re.compile(r"dondur|donuk|donmu|vitrif|cryo|cozdur|cozul|embriyo|blast|straw|tank", re.I)
 
 
 def timeline(conn, keys: set[str]) -> list[dict]:
@@ -26,6 +31,13 @@ def patient_view(conn, key: str) -> dict:
     months = sorted(c["month"] for c in cycles if c["month"])
     inv = for_patient(conn, key)
     header = [f"{len(cycles)} tedavi" + (f" · ilk kayıt {months[0]} · son kayıt {months[-1]}" if months else "")]
+    hint = [c for c in cycles if _HINT.search(norm(f"{c.get('notes') or ''} {c.get('notes_conf') or ''}"))]
+    lines = list(inv["lines"])
+    if hint:
+        lines.append(f"Doğrulanmalı: {len(hint)} kayıtın notlarında embriyo/dondurma ifadesi geçiyor; "
+                     "bu notlar envanter hesabına katılmadı, tedavi kartlarında okuyun.")
+    for c in cycles:
+        c["notes_hint"] = c in hint
     return {"key": key, "merged_keys": sorted(keys), "header": header, "cycles": cycles,
-            "inventory": inv["inventory"], "inventory_lines": inv["lines"], "note": inv["note"],
+            "inventory": inv["inventory"], "inventory_lines": lines, "note": inv["note"],
             "similar": similar_candidates(conn, key), "na": NA}

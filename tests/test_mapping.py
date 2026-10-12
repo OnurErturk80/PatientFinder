@@ -84,3 +84,16 @@ def test_dosya_no_groups_typos_together(tmp_path):
     hits = matching.search(conn, "yilmaz")
     assert len(hits) == 1 and hits[0]["key"] == "#1234|" and hits[0]["records"] == 4
     assert inventory.for_patient(conn, "#1234|")["inventory"]["embryo"]["remaining"] == 1
+
+
+def test_notes_shown_and_flag_freeze_mentions(tmp_path):
+    from hastagecmisi.patient import patient_view
+    r = row(opu=dt.datetime(2023, 3, 10), **{"notes": "3 embriyo donduruldu D5"})
+    conn = db.connect(str(tmp_path / "i.sqlite"))
+    p = tmp_path / "MART.accdb"
+    p.write_bytes(b"x")
+    db.import_file(conn, str(p), lambda path: map_rows(path, [r]))
+    v = patient_view(conn, "#1234|")
+    assert v["cycles"][0]["notes"] == "3 embriyo donduruldu D5" and v["cycles"][0]["notes_hint"]
+    assert any(l.startswith("Doğrulanmalı") and "notlarında" in l for l in v["inventory_lines"])
+    assert db.connect(str(tmp_path / "i.sqlite")).execute("PRAGMA user_version").fetchone()[0] == db.SCHEMA_VERSION

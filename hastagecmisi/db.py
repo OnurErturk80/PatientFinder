@@ -14,6 +14,7 @@ from typing import Callable, Iterable
 
 from .normalize import full_name
 
+SCHEMA_VERSION = 2
 SCHEMA = """
 CREATE TABLE IF NOT EXISTS source_file(
   id INTEGER PRIMARY KEY, path TEXT UNIQUE, size INTEGER, mtime REAL,
@@ -26,7 +27,7 @@ CREATE TABLE IF NOT EXISTS cycle(
   f_norm TEXT, m_norm TEXT,
   oocytes INTEGER, mii INTEGER, fertilized INTEGER, embryos INTEGER, embryo_quality TEXT,
   transfer_date TEXT, transfer_day TEXT, transfer_count INTEGER, transfer_quality TEXT,
-  outcome TEXT);
+  outcome TEXT, notes TEXT, notes_conf TEXT);
 -- Dondurma / çözme / kullanım / atılma olayları.
 CREATE TABLE IF NOT EXISTS sample_event(
   id INTEGER PRIMARY KEY, file_id INTEGER REFERENCES source_file(id) ON DELETE CASCADE,
@@ -46,7 +47,7 @@ CREATE INDEX IF NOT EXISTS ix_ev_f ON sample_event(f_norm); CREATE INDEX IF NOT 
 
 CYCLE_FIELDS = ["src_ref", "ident", "month", "cycle_date", "treatment_type", "protocol", "protocol_no", "f_first",
                 "f_last", "m_first", "m_last", "birth_date", "oocytes", "mii", "fertilized", "embryos",
-                "embryo_quality", "transfer_date", "transfer_day", "transfer_count", "transfer_quality", "outcome"]
+                "embryo_quality", "transfer_date", "transfer_day", "transfer_count", "transfer_quality", "outcome", "notes", "notes_conf"]
 EVENT_FIELDS = ["src_ref", "ident", "month", "event_date", "kind", "sample_type", "count", "quality", "day",
                 "location", "cycle_ref", "protocol_no", "f_first", "f_last", "m_first", "m_last"]
 
@@ -60,6 +61,11 @@ def connect(path: str = ":memory:") -> sqlite3.Connection:
     conn = sqlite3.connect(path, check_same_thread=False)
     conn.row_factory = sqlite3.Row
     conn.execute("PRAGMA foreign_keys=ON")
+    ver = conn.execute("PRAGMA user_version").fetchone()[0]
+    if ver < SCHEMA_VERSION:  # indeks türetilmiş kopyadır: eski şemayı at, dosyalar yeniden okunur (kararlar korunur)
+        for t in ("sample_event", "cycle", "source_file"):
+            conn.execute(f"DROP TABLE IF EXISTS {t}")
+        conn.execute(f"PRAGMA user_version={SCHEMA_VERSION}")
     conn.executescript(SCHEMA)
     return conn
 

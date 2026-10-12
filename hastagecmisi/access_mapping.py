@@ -25,7 +25,7 @@ C = dict(
     e2c="EMBRİYO2 HÜCRE/AŞAMA", e2q="EMBRİYO2 KALİTE", frozen="DONDURULAN EMBRİYO SAYISI",
     freeze_stage="EMBRİYO DONDURMA AŞAMASI", thawed="ÇÖZDÜRÜLEN EMBRİYO SAYISI",
     bhcg1="BİRİNCİ BHCG", bhcg2="İKİNCİ BHCG", fhb="İLK USG FHB KESE", abort="ABORT", missed="MISSED",
-    ectopic="EKTOPİK", live="CANLI DOĞUM SAYISI", dead="ÖLÜ DOĞUM SAYISI",
+    ectopic="EKTOPİK", notes="NOTLAR", notes_conf="NOTLAR CONFIDENTIAL", live="CANLI DOĞUM SAYISI", dead="ÖLÜ DOĞUM SAYISI",
 )
 
 
@@ -151,7 +151,8 @@ def map_rows(path: str, rows: list[dict]):
                        "fertilized": to_int(r.get(C["pn2"])), "transfer_date": tdate,
                        "transfer_day": to_text(r.get(C["stage"])),
                        "transfer_count": to_int(r.get(C["transfer_count"])),
-                       "transfer_quality": "; ".join(q) or None, "outcome": outcome_text(r)})
+                       "transfer_quality": "; ".join(q) or None, "outcome": outcome_text(r),
+                       "notes": to_text(r.get(C["notes"])), "notes_conf": to_text(r.get(C["notes_conf"]))})
         fz, th = to_int(r.get(C["frozen"])), to_int(r.get(C["thawed"]))
         if fz:
             events.append({**base, "event_date": opu or tdate, "kind": "freeze", "sample_type": "embryo",

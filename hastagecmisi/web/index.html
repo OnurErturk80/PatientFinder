@@ -13,7 +13,7 @@ input{width:100%;padding:14px;font-size:18px;border:1px solid var(--line);border
 .mut{color:var(--mut);font-size:14px}.warn{background:var(--warnbg);color:var(--warn);padding:8px 10px;border-radius:8px;margin:6px 0}
 details{border-top:1px solid var(--line);padding:8px 0}summary{cursor:pointer;min-height:32px}
 h2{font-size:17px;margin:20px 0 4px}button.sm{padding:8px 12px;margin:4px 4px 0 0;border-radius:8px;border:1px solid var(--line);background:var(--card);color:inherit}
-table{width:100%;border-collapse:collapse;font-size:14px}td,th{padding:6px;border-bottom:1px solid var(--line);text-align:left}
+table{width:100%;border-collapse:collapse;font-size:14px}td,th{white-space:pre-wrap;padding:6px;border-bottom:1px solid var(--line);text-align:left}
 </style></head><body><main>
 <input id="q" placeholder="Ad, soyad, eş adı veya protokol no" autofocus autocomplete="off">
 <div id="list"></div><div id="view"></div>
@@ -35,8 +35,8 @@ async function open(key){
   $('#view').innerHTML=`<div class="card"><b>${esc(p.header[0])}</b>
    ${p.inventory_lines.map(l=>l.startsWith('Doğrulanmalı')?`<div class="warn">${esc(l)}</div>`:`<div>${esc(l)}</div>`).join('')}
    <div class="mut">${esc(p.note)}</div></div>
-   <h2>Tedaviler</h2>`+p.cycles.map(c=>`<details><summary><b>${esc(c.cycle_date||c.month)}</b> · ${esc(c.treatment_type||p.na)} <span class="mut">${esc(c.outcome||'sonuç: kayıtta yok')}</span></summary>
-   <table>${[['Uyarı/protokol',c.protocol],['Toplanan oosit',c.oocytes],['MII',c.mii],['Döllenme',c.fertilized],['Embriyo',c.embryos],['Kalite',c.embryo_quality],['Transfer',[c.transfer_day,c.transfer_count].filter(x=>x!=null).join(' · ')||null]].map(([k,v])=>`<tr><th>${k}</th><td>${esc(v??p.na)}</td></tr>`).join('')}</table>
+   <h2>Tedaviler</h2>`+p.cycles.map(c=>`<details><summary>${c.notes_hint?'📝 ':''}<b>${esc(c.cycle_date||c.month)}</b> · ${esc(c.treatment_type||p.na)} <span class="mut">${esc(c.outcome||'sonuç: kayıtta yok')}</span></summary>
+   <table>${[['Uyarı/protokol',c.protocol],['Toplanan oosit',c.oocytes],['MII',c.mii],['Döllenme',c.fertilized],['Embriyo',c.embryos],['Kalite',c.embryo_quality],['Transfer',[c.transfer_day,c.transfer_count].filter(x=>x!=null).join(' · ')||null],['Notlar',c.notes],['Gizli notlar',c.notes_conf]].map(([k,v])=>`<tr><th>${k}</th><td>${esc(v??p.na)}</td></tr>`).join('')}</table>
    <div class="mut">Kaynak: ${esc(c.source.file.split(/[\\/]/).pop())} · ${esc(c.source.ref)}</div></details>`).join('')
   +`<h2>Dondurulmuş örnek envanteri</h2>`+(inv.length?inv.map(d=>`<div class="card"><b>${esc(d.type_tr)}</b>: dondurulan ${d.frozen}, çözülen ${d.thaw}, kullanılan ${d.use}, atılan ${d.discard}, devredilen ${d.transfer_out} → <b>${d.remaining}</b>${d.verify?' <span class="warn">Doğrulanmalı</span>':''}
    ${d.warnings.map(w=>`<div class="warn">${esc(w)}</div>`).join('')}
