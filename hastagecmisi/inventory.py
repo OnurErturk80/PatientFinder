@@ -5,6 +5,7 @@ kalan = dondurulan − (max(çözülen, kullanılan+atılan) + devredilen)
 """
 from __future__ import annotations
 
+from .dedupe import latest_per_ident
 from .matching import patient_keys
 
 SAMPLE_TR = {"embryo": "embriyo", "oocyte": "oosit", "sperm": "sperm"}
@@ -13,11 +14,12 @@ OUT_KINDS = ("thaw", "use", "discard", "transfer_out")
 
 def events_for(conn, keys: set[str]) -> list[dict]:
     rows = []
-    for r in conn.execute("SELECT e.*, f.path FROM sample_event e JOIN source_file f ON f.id=e.file_id "
+    for r in conn.execute("SELECT e.*, f.path, f.mtime FROM sample_event e JOIN source_file f ON f.id=e.file_id "
                           "ORDER BY COALESCE(e.event_date, e.month), e.id"):
         if f"{r['f_norm']}|{r['m_norm']}" in keys:
             rows.append(dict(r))
-    return rows
+    return latest_per_ident(rows, lambda e: (e["ident"], e["kind"], e["sample_type"]) if e["ident"] else None,
+                            compare=("count",))
 
 
 def compute(events: list[dict]) -> dict:
@@ -40,8 +42,8 @@ def compute(events: list[dict]) -> dict:
             warnings.append("Dondurma kaydı yok, yalnızca çözme/kullanım kaydı var.")
         if remaining < 0:
             warnings.append("Çözülen/kullanılan sayısı dondurulandan fazla.")
-        if outs["thaw"] and not used:
-            warnings.append("Çözme var ama kullanım/atılma kaydı yok.")
+        if any(e.get("conflict") for e in evs):
+            warnings.append("Aynı kayıt birden fazla dosyada farklı adetle geçiyor.")
         if outs["thaw"] and used and outs["thaw"] != used:
             warnings.append("Çözülen sayısı ile kullanılan+atılan sayısı tutmuyor.")
         out[st] = {"type": st, "type_tr": SAMPLE_TR[st], "frozen": frozen, **outs,

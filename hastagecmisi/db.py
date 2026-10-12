@@ -21,7 +21,7 @@ CREATE TABLE IF NOT EXISTS source_file(
 -- Tedavi döngüsü. Kayıtta olmayan alan NULL kalır (uydurulmaz).
 CREATE TABLE IF NOT EXISTS cycle(
   id INTEGER PRIMARY KEY, file_id INTEGER REFERENCES source_file(id) ON DELETE CASCADE,
-  src_ref TEXT, month TEXT, cycle_date TEXT, treatment_type TEXT, protocol TEXT,
+  src_ref TEXT, ident TEXT, month TEXT, cycle_date TEXT, treatment_type TEXT, protocol TEXT,
   protocol_no TEXT, f_first TEXT, f_last TEXT, m_first TEXT, m_last TEXT, birth_date TEXT,
   f_norm TEXT, m_norm TEXT,
   oocytes INTEGER, mii INTEGER, fertilized INTEGER, embryos INTEGER, embryo_quality TEXT,
@@ -30,7 +30,7 @@ CREATE TABLE IF NOT EXISTS cycle(
 -- Dondurma / çözme / kullanım / atılma olayları.
 CREATE TABLE IF NOT EXISTS sample_event(
   id INTEGER PRIMARY KEY, file_id INTEGER REFERENCES source_file(id) ON DELETE CASCADE,
-  src_ref TEXT, month TEXT, event_date TEXT,
+  src_ref TEXT, ident TEXT, month TEXT, event_date TEXT,
   kind TEXT CHECK(kind IN ('freeze','thaw','use','discard','transfer_out')),
   sample_type TEXT CHECK(sample_type IN ('embryo','oocyte','sperm')),
   count INTEGER, quality TEXT, day TEXT, location TEXT, cycle_ref TEXT,
@@ -44,10 +44,10 @@ CREATE INDEX IF NOT EXISTS ix_cycle_f ON cycle(f_norm); CREATE INDEX IF NOT EXIS
 CREATE INDEX IF NOT EXISTS ix_ev_f ON sample_event(f_norm); CREATE INDEX IF NOT EXISTS ix_ev_m ON sample_event(m_norm);
 """
 
-CYCLE_FIELDS = ["src_ref", "month", "cycle_date", "treatment_type", "protocol", "protocol_no", "f_first",
+CYCLE_FIELDS = ["src_ref", "ident", "month", "cycle_date", "treatment_type", "protocol", "protocol_no", "f_first",
                 "f_last", "m_first", "m_last", "birth_date", "oocytes", "mii", "fertilized", "embryos",
                 "embryo_quality", "transfer_date", "transfer_day", "transfer_count", "transfer_quality", "outcome"]
-EVENT_FIELDS = ["src_ref", "month", "event_date", "kind", "sample_type", "count", "quality", "day",
+EVENT_FIELDS = ["src_ref", "ident", "month", "event_date", "kind", "sample_type", "count", "quality", "day",
                 "location", "cycle_ref", "protocol_no", "f_first", "f_last", "m_first", "m_last"]
 
 # Okuyucu: dosya yolu -> (döngü sözlükleri, olay sözlükleri)

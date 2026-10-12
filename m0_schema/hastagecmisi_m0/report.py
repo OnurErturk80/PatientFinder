@@ -4,6 +4,7 @@ from __future__ import annotations
 import os
 import re
 import time
+import traceback
 import unicodedata
 from dataclasses import dataclass, field
 
@@ -40,6 +41,7 @@ class FileInfo:
     size: int
     mtime: float
     backend: str = ""
+    rel: str = ""
     tables: list[TableInfo] = field(default_factory=list)
     error: str | None = None
 
@@ -53,7 +55,8 @@ def scan_file(path: str, source: AccessSource) -> FileInfo:
         try:
             fi.tables.append(TableInfo(t, source.columns(t), source.row_count(t)))
         except Exception as e:  # tek tablo hatası tüm raporu bozmasın
-            fi.tables.append(TableInfo(t, [], None, f"{type(e).__name__}"))
+            fr = traceback.extract_tb(e.__traceback__)[-1]  # mesaj yok; yalnızca tür ve kod konumu
+            fi.tables.append(TableInfo(t, [], None, f"{type(e).__name__} @{os.path.basename(fr.filename)}:{fr.lineno}"))
     return fi
 
 
@@ -127,7 +130,7 @@ def render(files: list[FileInfo], folder_label: str = "(seçilen klasör)") -> s
          f"- Klasör: {folder_label}", f"- Dosya sayısı: {len(files)}", "",
          "## 1. Dosyalar", "", "| Dosya | Boyut (KB) | Değiştirilme | Arka uç | Tablo | Durum |", "|---|---:|---|---|---:|---|"]
     for f in files:
-        L.append(f"| {os.path.basename(f.path)} | {f.size // 1024} | {_fmt_time(f.mtime)} | {f.backend or '-'} | "
+        L.append(f"| {f.rel or os.path.basename(f.path)} | {f.size // 1024} | {_fmt_time(f.mtime)} | {f.backend or '-'} | "
                  f"{len(f.tables)} | {'HATA: ' + f.error if f.error else 'tamam'} |")
     L += ["", "## 2. Yıllar arası şema farkı", ""] + schema_diff(files)
     L += ["", "## 3. Hasta ayırt edici alan ipuçları", ""] + identifier_hints(files)

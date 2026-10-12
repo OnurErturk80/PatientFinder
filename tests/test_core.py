@@ -24,7 +24,9 @@ def test_inventory_clean_and_conflicts():
     assert ok["remaining"] == 3 and not ok["verify"]
     assert inventory.compute([ev("freeze", 1), ev("thaw", 3)])["embryo"]["verify"]
     assert inventory.compute([ev("thaw", 1)])["embryo"]["verify"]
-    assert inventory.compute([ev("freeze", 4), ev("thaw", 1)])["embryo"]["verify"]  # çözüldü, sonucu yok
+    r = inventory.compute([ev("freeze", 4), ev("thaw", 1)])["embryo"]  # Access'te yalnızca freeze/thaw tutulur
+    assert r["remaining"] == 3 and not r["verify"]
+    assert inventory.compute([{**ev("freeze", 2), "conflict": True}])["embryo"]["verify"]
     assert inventory.compute([ev("freeze", None)])["embryo"]["verify"]
 
 
