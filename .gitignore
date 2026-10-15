@@ -8,3 +8,4 @@ schema_report.md
 *.mdb
 *.accdb
 klasor.txt
+!tests/fixtures/**/*.accdb

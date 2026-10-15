@@ -97,3 +97,16 @@ def test_notes_shown_and_flag_freeze_mentions(tmp_path):
     assert v["cycles"][0]["notes"] == "3 embriyo donduruldu D5" and v["cycles"][0]["notes_hint"]
     assert any(l.startswith("Doğrulanmalı") and "notlarında" in l for l in v["inventory_lines"])
     assert db.connect(str(tmp_path / "i.sqlite")).execute("PRAGMA user_version").fetchone()[0] == db.SCHEMA_VERSION
+
+
+def test_real_accdb_fixtures_end_to_end():
+    """Gerçek .accdb dosyaları (uydurma veri): access-parser -> eşleme -> hasta görünümü."""
+    from hastagecmisi.patient import patient_view
+    folder = os.path.join(os.path.dirname(__file__), "fixtures", "sample")
+    conn = db.connect()
+    res = db.scan_folder(conn, folder, make_reader("access-parser"))
+    assert set(res.values()) == {"imported"}
+    v = patient_view(conn, "#1001|")
+    assert v["header"][0].startswith("2 tedavi") and v["inventory"]["embryo"]["remaining"] == 1
+    assert [c["month"] for c in v["cycles"]] == ["2023-03", "2024-01"]
+    assert any("notlarında" in l for l in v["inventory_lines"])

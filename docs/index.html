@@ -1,0 +1,163 @@
+<!doctype html>
+<html lang="tr"><head><meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<meta name="apple-mobile-web-app-capable" content="yes"><meta name="theme-color" content="#12151b">
+<link rel="manifest" href="manifest.webmanifest">
+<title>Hasta Geçmişi</title>
+<style>
+:root{--bg:#f6f7f9;--fg:#1c2330;--card:#fff;--mut:#667085;--line:#e3e6ec;--warn:#b54708;--warnbg:#fffaeb;--acc:#1d4ed8}
+@media(prefers-color-scheme:dark){:root{--bg:#12151b;--fg:#e8ebf0;--card:#1b2029;--mut:#98a2b3;--line:#2a313d;--warn:#fdb022;--warnbg:#2b2210;--acc:#7aa2ff}}
+*{box-sizing:border-box}body{margin:0;background:var(--bg);color:var(--fg);font:16px/1.45 system-ui,sans-serif}
+main{max-width:760px;margin:0 auto;padding:16px}
+input{width:100%;padding:14px;font-size:18px;border:1px solid var(--line);border-radius:10px;background:var(--card);color:var(--fg);margin:4px 0}
+.card{background:var(--card);border:1px solid var(--line);border-radius:12px;padding:14px;margin:12px 0}
+.row{display:block;width:100%;text-align:left;background:var(--card);color:inherit;border:1px solid var(--line);border-radius:10px;padding:14px;margin:8px 0;font-size:16px;min-height:48px}
+.btn{padding:12px 16px;border-radius:10px;border:1px solid var(--acc);background:var(--acc);color:#fff;font-size:16px;min-height:44px}
+.btn.alt{background:transparent;color:var(--acc)}
+.mut{color:var(--mut);font-size:14px}.warn{background:var(--warnbg);color:var(--warn);padding:8px 10px;border-radius:8px;margin:6px 0}
+details{border-top:1px solid var(--line);padding:8px 0}summary{cursor:pointer;min-height:32px}
+h2{font-size:17px;margin:20px 0 4px}button.sm{padding:8px 12px;margin:4px 4px 0 0;border-radius:8px;border:1px solid var(--line);background:var(--card);color:inherit}
+table{width:100%;border-collapse:collapse;font-size:14px}td,th{white-space:pre-wrap;padding:6px;border-bottom:1px solid var(--line);text-align:left}
+.hide{display:none}progress{width:100%}
+</style></head><body><main>
+<section id="setup" class="card hide">
+  <h2 style="margin-top:0">İlk kurulum</h2>
+  <p class="mut">Veri yalnızca bu telefonda ve Google Drive'ınızda durur. Ayrıntılar için <b>TELEFON_KURULUM.md</b> dosyasına bakın.</p>
+  <label class="mut">Google OAuth istemci kimliği (Client ID)</label><input id="cid" autocomplete="off" placeholder="xxxx.apps.googleusercontent.com">
+  <label class="mut">Drive klasörü (bağlantıyı yapıştırın)</label><input id="fol" autocomplete="off" placeholder="https://drive.google.com/drive/folders/...">
+  <button class="btn" id="save">Kaydet</button>
+</section>
+<section id="sync" class="card hide">
+  <div id="syncinfo" class="mut"></div>
+  <progress id="prog" class="hide"></progress>
+  <div id="errs" class="warn hide"></div>
+  <button class="btn" id="dosync">Drive ile eşitle</button>
+  <button class="btn alt" id="wipe">Bu telefondaki verileri sil</button>
+</section>
+<input id="q" class="hide" placeholder="Ad, soyad, eş adı veya protokol no" autocomplete="off">
+<div id="list"></div><div id="view"></div>
+</main>
+<script type="module">
+import MDBReader, { Buffer } from "./vendor/mdb-reader.js";
+import { Index, mapRows, TABLE } from "./core.js";
+const $ = (s) => document.querySelector(s);
+const esc = (s) => String(s ?? "").replace(/[&<>"]/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;" }[c]));
+const SCOPE = "https://www.googleapis.com/auth/drive.readonly";
+const API = "https://www.googleapis.com/drive/v3/files";
+const ls = { get: (k) => { try { return localStorage.getItem(k); } catch { return null; } }, set: (k, v) => { try { localStorage.setItem(k, v); } catch {} }, del: (k) => { try { localStorage.removeItem(k); } catch {} } };
+
+// ---- yerel depo (IndexedDB): her dosya için ayrıştırılmış kayıtlar ----
+const idb = () => new Promise((res, rej) => { const r = indexedDB.open("hastagecmisi", 1); r.onupgradeneeded = () => r.result.createObjectStore("files", { keyPath: "id" }); r.onsuccess = () => res(r.result); r.onerror = () => rej(r.error); });
+const tx = async (mode, fn) => { const db = await idb(); return new Promise((res, rej) => { const t = db.transaction("files", mode); const out = fn(t.objectStore("files")); t.oncomplete = () => res(out.result); t.onerror = () => rej(t.error); }); };
+const allFiles = () => tx("readonly", (s) => s.getAll());
+const putFile = (f) => tx("readwrite", (s) => s.put(f));
+const delFile = (id) => tx("readwrite", (s) => s.delete(id));
+const clearFiles = () => tx("readwrite", (s) => s.clear());
+
+let index = new Index([], JSON.parse(ls.get("hg_decisions") || "[]"));
+let token = null, tokenClient = null;
+
+async function reload() { index = new Index(await allFiles(), index.decisions); showMain(); }
+function showMain() {
+  const has = index.cycles.length > 0;
+  $("#q").classList.toggle("hide", !has);
+  const last = ls.get("hg_last_sync");
+  $("#syncinfo").textContent = has ? `${index.cycles.length} tedavi kaydı yüklü · son eşitleme: ${last || "?"}` : "Henüz veri yok. Drive ile eşitleyin.";
+}
+
+// ---- Google / Drive ----
+function loadGsi() { return new Promise((res, rej) => { if (window.google?.accounts?.oauth2) return res(); const s = document.createElement("script"); s.src = "https://accounts.google.com/gsi/client"; s.onload = res; s.onerror = () => rej(new Error("Google girişi yüklenemedi (internet?)")); document.head.appendChild(s); }); }
+async function getToken(force) {
+  if (token && !force) return token;
+  await loadGsi();
+  return new Promise((res, rej) => {
+    tokenClient = google.accounts.oauth2.initTokenClient({ client_id: ls.get("hg_cid"), scope: SCOPE, callback: (r) => (r.access_token ? (token = r.access_token, res(token)) : rej(new Error(r.error || "Giriş reddedildi"))), error_callback: (e) => rej(new Error(e.type || "Giriş iptal edildi")) });
+    tokenClient.requestAccessToken({ prompt: token ? "" : "consent" });
+  });
+}
+async function gfetch(url, asBuf) {
+  for (let i = 0; i < 2; i++) {
+    const r = await fetch(url, { headers: { Authorization: "Bearer " + (await getToken(i > 0)) } });
+    if (r.status === 401 && i === 0) { token = null; continue; }
+    if (!r.ok) throw new Error("Drive hatası " + r.status);
+    return asBuf ? r.arrayBuffer() : r.json();
+  }
+}
+async function listFolder(id, path, out) {
+  let page = "";
+  do {
+    const q = encodeURIComponent(`'${id}' in parents and trashed=false`);
+    const j = await gfetch(`${API}?q=${q}&pageSize=1000&fields=nextPageToken,files(id,name,mimeType,modifiedTime,md5Checksum)&supportsAllDrives=true&includeItemsFromAllDrives=true${page ? "&pageToken=" + page : ""}`);
+    for (const f of j.files) {
+      if (f.mimeType === "application/vnd.google-apps.folder") await listFolder(f.id, path + f.name + "/", out);
+      else if (/\.(accdb|mdb)$/i.test(f.name) && !f.name.startsWith("~")) out.push({ ...f, path: path + f.name });
+    }
+    page = j.nextPageToken || "";
+  } while (page);
+}
+async function sync() {
+  const btn = $("#dosync"), prog = $("#prog"), errs = $("#errs"); btn.disabled = true; errs.classList.add("hide"); prog.classList.remove("hide");
+  const errors = [];
+  try {
+    const remote = []; $("#syncinfo").textContent = "Drive klasörü taranıyor…";
+    await listFolder(ls.get("hg_folder"), "", remote);
+    const local = new Map((await allFiles()).map((f) => [f.id, f]));
+    const todo = remote.filter((r) => local.get(r.id)?.md5 !== r.md5Checksum || local.get(r.id)?.mtime !== r.modifiedTime);
+    for (const id of local.keys()) if (!remote.some((r) => r.id === id)) await delFile(id);
+    let n = 0; prog.max = todo.length || 1; prog.value = 0;
+    for (const r of todo) {
+      $("#syncinfo").textContent = `İndiriliyor ${++n}/${todo.length}: ${r.path}`;
+      try {
+        const buf = Buffer.from(await gfetch(`${API}/${r.id}?alt=media&supportsAllDrives=true`, true));
+        const rows = new MDBReader(buf).getTable(TABLE).getData();
+        await putFile({ id: r.id, path: r.path, md5: r.md5Checksum, mtime: r.modifiedTime, ...mapRows(r.path, rows) });
+      } catch (e) { errors.push(`${r.path}: ${e.message}`); }   // hata iletisinde kayıt içeriği yok
+      prog.value = n;
+    }
+    ls.set("hg_last_sync", new Date().toLocaleString("tr-TR"));
+  } catch (e) { errors.push(e.message); }
+  prog.classList.add("hide"); btn.disabled = false;
+  if (errors.length) { errs.classList.remove("hide"); errs.textContent = "Okunamadı: " + errors.join(" | "); }
+  await reload();
+}
+
+// ---- arayüz ----
+let t; $("#q").addEventListener("input", () => { clearTimeout(t); t = setTimeout(find, 200); });
+function find() {
+  const q = $("#q").value.trim(); $("#view").innerHTML = "";
+  if (!q) { $("#list").innerHTML = ""; return; }
+  const r = index.search(q);
+  $("#list").innerHTML = r.length ? r.map((x) => `<button class="row" data-k="${esc(x.key)}"><b>${esc(x.female) || "—"}</b> · eş: ${esc(x.male) || "—"}<div class="mut">${x.protocol_no ? "dosya " + esc(x.protocol_no) + " · " : ""}${x.records} kayıt · ${esc(x.first) || "?"} – ${esc(x.last) || "?"}</div></button>`).join("") : '<p class="mut">Eşleşen kayıt yok.</p>';
+  document.querySelectorAll(".row").forEach((b) => (b.onclick = () => open(b.dataset.k)));
+}
+function open(key) {
+  const p = index.patient(key), inv = Object.values(p.inventory);
+  $("#list").innerHTML = "";
+  $("#view").innerHTML = `<div class="card"><b>${esc(p.header[0])}</b>${p.inventory_lines.map((l) => l.startsWith("Doğrulanmalı") ? `<div class="warn">${esc(l)}</div>` : `<div>${esc(l)}</div>`).join("")}<div class="mut">${esc(p.note)}</div></div><h2>Tedaviler</h2>` +
+    p.cycles.map((c) => `<details><summary>${c.notes_hint ? "📝 " : ""}<b>${esc(c.cycle_date || c.month)}</b> · ${esc(c.treatment_type || p.na)} <span class="mut">${esc(c.outcome || "sonuç: kayıtta yok")}</span></summary><table>${[["Uyarı/protokol", c.protocol], ["Toplanan oosit", c.oocytes], ["MII", c.mii], ["Döllenme", c.fertilized], ["Transfer", [c.transfer_day, c.transfer_count].filter((x) => x != null).join(" · ") || null], ["Kalite", c.transfer_quality], ["Notlar", c.notes], ["Gizli notlar", c.notes_conf]].map(([k, v]) => `<tr><th>${k}</th><td>${esc(v ?? p.na)}</td></tr>`).join("")}</table><div class="mut">Kaynak: ${esc((c.file || "").split("/").pop())} · ${esc(c.src_ref)}</div></details>`).join("") +
+    `<h2>Dondurulmuş örnek envanteri</h2>` + (inv.length ? inv.map((d) => `<div class="card"><b>${esc(d.type_tr)}</b>: dondurulan ${d.frozen}, çözülen ${d.thaw} → <b>${d.remaining}</b>${d.verify ? ' <span class="warn">Doğrulanmalı</span>' : ""}${d.warnings.map((w) => `<div class="warn">${esc(w)}</div>`).join("")}<details><summary class="mut">Kaynak kayıtlar (${d.sources.length})</summary><table>${d.sources.map((s) => `<tr><td>${esc(s.date)}</td><td>${esc(s.kind)}</td><td>${s.count ?? "?"}</td><td class="mut">${esc((s.file || "").split("/").pop())} ${esc(s.ref)}</td></tr>`).join("")}</table></details></div>`).join("") : '<p class="mut">Kayıt yok.</p>') +
+    (p.similar.length ? `<h2>Benzer kayıtlar (karar sizin)</h2>` + p.similar.map((s) => `<div class="card">${esc(s.female)} · eş: ${esc(s.male)}<br><button class="sm" data-a="${esc(p.key)}" data-b="${esc(s.key)}" data-v="merge">Aynı hasta, birleştir</button><button class="sm" data-a="${esc(p.key)}" data-b="${esc(s.key)}" data-v="separate">Farklı kişi</button></div>`).join("") : "");
+  document.querySelectorAll("button.sm").forEach((b) => (b.onclick = () => { ls.set("hg_decisions", JSON.stringify(index.decide(b.dataset.a, b.dataset.b, b.dataset.v))); open(key); }));
+}
+
+// ---- kurulum ve silme ----
+const folderId = (v) => (v.match(/folders\/([\w-]+)/) || v.match(/[?&]id=([\w-]+)/) || v.match(/^([\w-]{15,})$/) || [])[1];
+$("#save").onclick = () => {
+  const cid = $("#cid").value.trim(), fid = folderId($("#fol").value.trim());
+  if (!cid || !fid) { alert("Client ID ve geçerli bir Drive klasör bağlantısı girin."); return; }
+  ls.set("hg_cid", cid); ls.set("hg_folder", fid); init();
+};
+$("#dosync").onclick = sync;
+$("#wipe").onclick = async () => {
+  if (!confirm("Bu telefondaki tüm hasta verileri ve ayarlar silinecek. Drive'daki dosyalara dokunulmaz. Devam?")) return;
+  await clearFiles(); for (const k of ["hg_cid", "hg_folder", "hg_last_sync", "hg_decisions"]) ls.del(k);
+  try { if (token && window.google) google.accounts.oauth2.revoke(token); } catch {}
+  token = null; index = new Index([], []); $("#view").innerHTML = ""; $("#list").innerHTML = ""; init();
+};
+async function init() {
+  const ok = ls.get("hg_cid") && ls.get("hg_folder");
+  $("#setup").classList.toggle("hide", !!ok); $("#sync").classList.toggle("hide", !ok);
+  if (ok) await reload(); else $("#q").classList.add("hide");
+}
+init();
+</script></body></html>
