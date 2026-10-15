@@ -1,0 +1,12 @@
+<!doctype html>
+<html lang="tr"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
+<title>Giriş</title><link rel="manifest" href="/manifest.webmanifest">
+<style>:root{--bg:#f6f7f9;--fg:#1c2330;--card:#fff;--line:#e3e6ec;--err:#b42318}
+@media(prefers-color-scheme:dark){:root{--bg:#12151b;--fg:#e8ebf0;--card:#1b2029;--line:#2a313d;--err:#f97066}}
+body{margin:0;background:var(--bg);color:var(--fg);font:16px system-ui,sans-serif;display:grid;place-items:center;min-height:100vh}
+form{width:min(340px,90vw)}input,button{width:100%;padding:14px;font-size:18px;border-radius:10px;border:1px solid var(--line);margin-top:10px;background:var(--card);color:var(--fg)}
+#e{color:var(--err);min-height:1.4em;margin-top:8px}</style></head><body>
+<form id="f"><h2>Hasta Geçmişi</h2><input id="p" type="password" inputmode="numeric" autocomplete="current-password" placeholder="PIN" autofocus>
+<button>Giriş</button><div id="e"></div></form>
+<script>f.onsubmit=async e=>{e.preventDefault();const r=await fetch('/api/login',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({pin:p.value})});
+if(r.ok)location='/';else{e.textContent='';document.getElementById('e').textContent=(await r.json()).detail;p.value=''}}</script></body></html>

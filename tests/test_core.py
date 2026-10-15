@@ -83,3 +83,26 @@ def test_api_end_to_end(tmp_path):
     assert all(cy["source"]["file"] for cy in p["cycles"])
     assert c.get("/").status_code == 200
     assert c.get("/api/patient", params={"key": "x"}).status_code == 400
+
+
+def test_lan_pin_auth(tmp_path):
+    from hastagecmisi import auth as A
+    pin = str(tmp_path / "pin.json")
+    A.set_pin(pin, "123456")
+    now = [1000.0]
+    c = TestClient(create_app(db.connect(), None, A.Auth(pin, clock=lambda: now[0])), follow_redirects=False)
+    assert c.get("/api/search?q=a").status_code == 401 and c.get("/").status_code == 307
+    assert c.post("/api/login", json={"pin": "000000"}).status_code == 401
+    assert c.post("/api/login", json={"pin": "123456"}).status_code == 200
+    assert c.get("/api/search?q=a").status_code == 200
+    now[0] += A.IDLE_SECONDS + 1  # boşta kalınca oturum biter
+    assert c.get("/api/search?q=a").status_code == 401
+    c2 = TestClient(create_app(db.connect(), None, A.Auth(pin)), follow_redirects=False)
+    for _ in range(A.MAX_FAILS):
+        c2.post("/api/login", json={"pin": "x"})
+    assert c2.post("/api/login", json={"pin": "123456"}).status_code == 429  # doğru PIN bile kilitliyken geçmez
+    try:
+        A.set_pin(pin, "123")
+        assert False
+    except ValueError:
+        pass

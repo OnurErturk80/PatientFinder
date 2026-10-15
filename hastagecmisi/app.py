@@ -4,7 +4,8 @@ from __future__ import annotations
 import os
 
 from fastapi import FastAPI, HTTPException
-from fastapi.responses import FileResponse
+from fastapi import Request
+from fastapi.responses import FileResponse, JSONResponse, RedirectResponse
 from pydantic import BaseModel
 
 from . import db as dbmod
@@ -14,16 +15,55 @@ from .patient import patient_view
 WEB = os.path.join(os.path.dirname(__file__), "web")
 
 
+class Login(BaseModel):
+    pin: str
+
+
 class Decision(BaseModel):
     key_a: str
     key_b: str
     verdict: str | None  # 'merge' | 'separate' | null (geri al)
 
 
-def create_app(conn=None, scan=None) -> FastAPI:
+def create_app(conn=None, scan=None, auth=None) -> FastAPI:
     """scan: () -> {dosya: durum} (Access klasörünü içe aktaran işlev)."""
     conn = conn or dbmod.connect()
     app = FastAPI(title="Hasta Geçmişi", docs_url=None, redoc_url=None)
+
+    COOKIE = "hg_session"
+
+    @app.middleware("http")
+    async def require_login(request: Request, call_next):
+        open_paths = ("/login", "/api/login", "/manifest.webmanifest")
+        if auth and request.url.path not in open_paths and not auth.valid(request.cookies.get(COOKIE)):
+            if request.url.path.startswith("/api/"):
+                return JSONResponse({"detail": "Giriş gerekli."}, status_code=401)
+            return RedirectResponse("/login")
+        resp = await call_next(request)
+        resp.headers["Cache-Control"] = "no-store"  # hasta verisi tarayıcı önbelleğinde kalmasın
+        return resp
+
+    @app.get("/login")
+    def login_page():
+        return FileResponse(os.path.join(WEB, "login.html"))
+
+    @app.post("/api/login")
+    def api_login(body: Login, request: Request):
+        ip = request.client.host if request.client else "?"
+        if auth.locked(ip):
+            return JSONResponse({"detail": "Çok fazla hatalı deneme. 5 dakika sonra tekrar deneyin."}, status_code=429)
+        tok = auth.login(ip, body.pin)
+        if not tok:
+            return JSONResponse({"detail": "PIN hatalı."}, status_code=401)
+        r = JSONResponse({"ok": True})
+        r.set_cookie(COOKIE, tok, httponly=True, samesite="strict", max_age=None)
+        return r
+
+    @app.get("/manifest.webmanifest")
+    def manifest():
+        return JSONResponse({"name": "Hasta Geçmişi", "short_name": "Hasta", "start_url": "/",
+                             "display": "standalone", "background_color": "#12151b", "theme_color": "#12151b"},
+                            media_type="application/manifest+json")
 
     @app.get("/")
     def index():
