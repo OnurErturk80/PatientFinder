@@ -82,6 +82,51 @@ export function mapRows(path, rows) {
   return { cycles, events };
 }
 
+// ---- Sorgu: ad sözcükleri + tarih aralığı (Python query.py ile aynı kurallar) ----
+const MN = "ocak|subat|mart|nisan|mayis|haziran|temmuz|agustos|eylul|ekim|kasim|aralik", MNUM = Object.fromEntries(MN.split("|").map((m, i) => [m, i + 1]));
+const Y = "(20\\d\\d)", p2 = (n) => String(n).padStart(2, "0");
+const PATTERNS = [
+  ["ymd", new RegExp(`(?<!\\d)${Y}-(\\d{1,2})-(\\d{1,2})(?!\\d)`, "g")],
+  ["dmy", new RegExp(`(?<!\\d)(\\d{1,2})[./-](\\d{1,2})[./-]${Y}(?!\\d)`, "g")],
+  ["ym", new RegExp(`(?<!\\d)${Y}-(\\d{1,2})(?![\\d-])`, "g")],
+  ["my", new RegExp(`(?<![\\d./-])(\\d{1,2})[./-]${Y}(?!\\d)`, "g")],
+  ["mname", new RegExp(`(?<![a-z])(${MN})\\s+${Y}(?!\\d)`, "g")],
+  ["y", new RegExp(`(?<![\\d./-])${Y}(?![\\d./-])`, "g")],
+];
+const daysIn = (y, m) => new Date(Date.UTC(y, m, 0)).getUTCDate();
+function span(kind, g, protocols) {
+  if (kind === "ymd" || kind === "dmy") {
+    const [y, m, d] = kind === "ymd" ? [+g[0], +g[1], +g[2]] : [+g[2], +g[1], +g[0]];
+    if (!(m >= 1 && m <= 12 && d >= 1 && d <= daysIn(y, m))) return null;
+    const s = `${y}-${p2(m)}-${p2(d)}`; return [s, s, "day"];
+  }
+  if (kind === "ym" || kind === "my" || kind === "mname") {
+    const [y, m] = kind === "ym" ? [+g[0], +g[1]] : kind === "my" ? [+g[1], +g[0]] : [+g[1], MNUM[g[0]]];
+    if (!(m >= 1 && m <= 12)) return null;
+    return [`${y}-${p2(m)}-01`, `${y}-${p2(m)}-${p2(daysIn(y, m))}`, "month"];
+  }
+  return protocols.has(g[0]) ? null : [`${g[0]}-01-01`, `${g[0]}-12-31`, "year"];
+}
+export function parseQuery(q, protocols = new Set()) {
+  let s = norm(q); const found = [];
+  for (const [kind, rx] of PATTERNS) {
+    for (const m of [...s.matchAll(rx)]) {
+      const sp = span(kind, m.slice(1), protocols); if (!sp) continue;
+      found.push([m.index, sp]); s = s.slice(0, m.index) + " ".repeat(m[0].length) + s.slice(m.index + m[0].length);
+    }
+  }
+  const tokens = s.replace(/–/g, " ").replace(/\.\./g, " ").split(/\s+/).filter((t) => t && t !== "-" && t !== "ile");
+  if (!found.length) return { tokens, rng: null };
+  found.sort((a, b) => a[0] - b[0]);
+  let lo = found[0][1][0], hi = found.at(-1)[1][1];
+  if (lo > hi) { lo = found.at(-1)[1][0]; hi = found[0][1][1]; }
+  return { tokens, rng: [lo, hi, found.every((f) => f[1][2] === "day")] };
+}
+function inRange(dates, month, [lo, hi, dayLevel]) {
+  for (const d of dates) if (d && d >= lo && d <= hi) return d;
+  return month && !dayLevel && month >= lo.slice(0, 7) && month <= hi.slice(0, 7) ? month : null;
+}
+
 // ---- Dizin: dosyalardan gelen kayıtlar ----
 export class Index {
   constructor(files, decisions = []) {   // files: [{path, mtime, id, cycles, events}]
@@ -93,21 +138,28 @@ export class Index {
   }
   static rowKey(r) { const no = (r.protocol_no || "").trim(); return no ? `#${no}|` : `${r.f_norm}|${r.m_norm}`; }
   search(q, limit = 50) {
-    const tokens = norm(q).split(" ").filter(Boolean); if (!tokens.length) return [];
+    const protocols = new Set(this.cycles.concat(this.events).map((r) => (r.protocol_no || "").trim()).filter(Boolean));
+    const { tokens, rng } = parseQuery(q, protocols);
+    if (!tokens.length && !rng) return [];
     const groups = new Map();
     for (const r of this.cycles.concat(this.events)) {
       const hay = `${r.f_norm} ${r.m_norm} ${norm(r.protocol_no)}`;
       if (!tokens.every((t) => hay.includes(t))) continue;
+      let hit = null;
+      if (rng) { hit = inRange([r.cycle_date ?? r.event_date, r.transfer_date], r.month, rng); if (!hit) continue; }
       const k = Index.rowKey(r);
-      const g = groups.get(k) || { f: {}, m: {}, months: new Set(), birth: new Set(), n: 0, no: r.protocol_no };
+      const g = groups.get(k) || { f: {}, m: {}, months: new Set(), birth: new Set(), n: 0, no: r.protocol_no, hits: new Set() };
       g.n++; g.f[r.f_norm] = (g.f[r.f_norm] || 0) + 1; g.m[r.m_norm] = (g.m[r.m_norm] || 0) + 1;
+      if (hit) g.hits.add(hit);
       if (r.month) g.months.add(r.month); if (r.birth_date) g.birth.add(r.birth_date);
       groups.set(k, g);
     }
     const top = (o) => Object.entries(o).sort((a, b) => b[1] - a[1])[0][0];
-    return [...groups].map(([key, g]) => { const m = [...g.months].sort();
-      return { key, female: top(g.f), male: top(g.m), protocol_no: g.no, records: g.n, first: m[0] ?? null, last: m.at(-1) ?? null, birth: [...g.birth].sort() }; })
-      .sort((a, b) => b.records - a.records || a.female.localeCompare(b.female)).slice(0, limit);
+    const out = [...groups].map(([key, g]) => { const m = [...g.months].sort();
+      return { key, female: top(g.f), male: top(g.m), protocol_no: g.no, records: g.n, first: m[0] ?? null, last: m.at(-1) ?? null,
+        birth: [...g.birth].sort(), match_dates: [...g.hits].sort().slice(0, 3) }; });
+    if (rng && !tokens.length) { out.sort((a, b) => (a.match_dates[0] || "").localeCompare(b.match_dates[0] || "") || a.female.localeCompare(b.female)); return out.slice(0, Math.max(limit, 200)); }
+    return out.sort((a, b) => b.records - a.records || a.female.localeCompare(b.female)).slice(0, limit);
   }
   mergedKeys(key) {
     const adj = new Map();

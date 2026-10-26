@@ -67,6 +67,15 @@ with sync_playwright() as p:
     page.fill("#q", "yilmaz")
     page.wait_for_selector(".row")
     assert "dosya 1001" in page.inner_text(".row") and page.locator(".row").count() == 1
+    for q, want in (("10.03.2023", 1), ("03.2023", 2), ("2024", 1), ("2022", 0), ("01.2023 - 06.2024", 2), ("ayse 2024", 1), ("isil 2024", 0)):
+        page.fill("#q", q)
+        page.wait_for_timeout(450)
+        assert page.locator(".row").count() == want, (q, want, page.locator(".row").count())
+    page.fill("#q", "15.03.2023")
+    page.wait_for_selector(".row")
+    assert "eşleşen tarih: 2023-03-15" in page.inner_text(".row")
+    page.fill("#q", "yilmaz")
+    page.wait_for_selector(".row")
     page.click(".row")
     txt = page.inner_text("#view")
     assert "2 tedavi" in txt and "Kayıtlara göre 1 embriyo kalmış görünüyor." in txt, txt

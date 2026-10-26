@@ -110,3 +110,30 @@ def test_real_accdb_fixtures_end_to_end():
     assert v["header"][0].startswith("2 tedavi") and v["inventory"]["embryo"]["remaining"] == 1
     assert [c["month"] for c in v["cycles"]] == ["2023-03", "2024-01"]
     assert any("notlarında" in l for l in v["inventory_lines"])
+
+
+def test_parse_query_dates():
+    from hastagecmisi.query import parse_query
+    assert parse_query("yilmaz 15.03.2024") == (["yilmaz"], ("2024-03-15", "2024-03-15", True))
+    assert parse_query("03.2024")[1] == ("2024-03-01", "2024-03-31", False)
+    assert parse_query("2024-03")[1] == ("2024-03-01", "2024-03-31", False)
+    assert parse_query("Mart 2024")[1] == ("2024-03-01", "2024-03-31", False)
+    assert parse_query("2023")[1] == ("2023-01-01", "2023-12-31", False)
+    assert parse_query("01.2024 - 03.2024") == ([], ("2024-01-01", "2024-03-31", False))
+    assert parse_query("03.2024 01.2024")[1][:2] == ("2024-01-01", "2024-03-31")  # sıra fark etmez
+    assert parse_query("31.02.2024")[1] is None and parse_query("ayse")[1] is None  # geçersiz gün tarih sayılmaz
+    assert parse_query("2005", {"2005"}) == (["2005"], None)  # DOSYA NO ile çakışan sayı yıl değildir
+
+
+def test_date_search_on_real_fixtures():
+    from hastagecmisi import matching
+    conn = db.connect()
+    db.scan_folder(conn, os.path.join(os.path.dirname(__file__), "fixtures", "sample"), make_reader("access-parser"))
+    keys = lambda q: sorted(x["key"] for x in matching.search(conn, q))
+    assert keys("10.03.2023") == ["#1001|"]               # yalnızca o günün OPU kaydı
+    assert keys("03.2023") == ["#1001|", "#1002|"]        # ay: tarihsiz kayıt dosya ayından eşleşir
+    assert keys("2024") == ["#1001|"] and keys("2022") == []
+    assert keys("01.2023 - 06.2024") == ["#1001|", "#1002|"]
+    assert keys("ayse 2024") == ["#1001|"] and keys("isil 2024") == []   # ad + tarih birlikte (VE)
+    hit = matching.search(conn, "15.03.2023")[0]
+    assert hit["match_dates"] == ["2023-03-15"]

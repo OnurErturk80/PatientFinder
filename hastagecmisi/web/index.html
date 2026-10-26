@@ -16,7 +16,7 @@ details{border-top:1px solid var(--line);padding:8px 0}summary{cursor:pointer;mi
 h2{font-size:17px;margin:20px 0 4px}button.sm{padding:8px 12px;margin:4px 4px 0 0;border-radius:8px;border:1px solid var(--line);background:var(--card);color:inherit}
 table{width:100%;border-collapse:collapse;font-size:14px}td,th{white-space:pre-wrap;padding:6px;border-bottom:1px solid var(--line);text-align:left}
 </style></head><body><main>
-<input id="q" placeholder="Ad, soyad, eş adı veya protokol no" autofocus autocomplete="off">
+<input id="q" placeholder="Ad, dosya no veya tarih (03.2024, 15.03.2024, 2023, mart 2024)" autofocus autocomplete="off">
 <div id="list"></div><div id="view"></div>
 </main>
 <script>
@@ -26,7 +26,7 @@ async function find(){
   const q=$('#q').value.trim();$('#view').innerHTML='';
   if(!q){$('#list').innerHTML='';return}
   const r=await (await fetch('/api/search?q='+encodeURIComponent(q))).json();
-  $('#list').innerHTML=r.length?r.map(x=>`<button class="row" data-k="${esc(x.key)}"><b>${esc(x.female)||'—'}</b> · eş: ${esc(x.male)||'—'}<div class="mut">${x.records} kayıt · ${esc(x.first)||'?'} – ${esc(x.last)||'?'}${x.birth.length?' · d.t. '+esc(x.birth.join(', ')):''}</div></button>`).join(''):'<p class="mut">Eşleşen kayıt yok.</p>';
+  $('#list').innerHTML=r.length?r.map(x=>`<button class="row" data-k="${esc(x.key)}"><b>${esc(x.female)||'—'}</b> · eş: ${esc(x.male)||'—'}<div class="mut">${x.records} kayıt · ${esc(x.first)||'?'} – ${esc(x.last)||'?'}${x.match_dates&&x.match_dates.length?' · eşleşen tarih: '+esc(x.match_dates.join(', ')):''}${x.birth.length?' · d.t. '+esc(x.birth.join(', ')):''}</div></button>`).join(''):'<p class="mut">Eşleşen kayıt yok.</p>';
   document.querySelectorAll('.row').forEach(b=>b.onclick=()=>open(b.dataset.k));
 }
 async function open(key){

@@ -34,7 +34,7 @@ table{width:100%;border-collapse:collapse;font-size:14px}td,th{white-space:pre-w
   <button class="btn" id="dosync">Drive ile eşitle</button>
   <button class="btn alt" id="wipe">Bu telefondaki verileri sil</button>
 </section>
-<input id="q" class="hide" placeholder="Ad, soyad, eş adı veya protokol no" autocomplete="off">
+<input id="q" class="hide" placeholder="Ad, dosya no veya tarih (03.2024, 15.03.2024, 2023, mart 2024)" autocomplete="off">
 <div id="list"></div><div id="view"></div>
 </main>
 <script type="module">
@@ -127,7 +127,7 @@ function find() {
   const q = $("#q").value.trim(); $("#view").innerHTML = "";
   if (!q) { $("#list").innerHTML = ""; return; }
   const r = index.search(q);
-  $("#list").innerHTML = r.length ? r.map((x) => `<button class="row" data-k="${esc(x.key)}"><b>${esc(x.female) || "—"}</b> · eş: ${esc(x.male) || "—"}<div class="mut">${x.protocol_no ? "dosya " + esc(x.protocol_no) + " · " : ""}${x.records} kayıt · ${esc(x.first) || "?"} – ${esc(x.last) || "?"}</div></button>`).join("") : '<p class="mut">Eşleşen kayıt yok.</p>';
+  $("#list").innerHTML = r.length ? r.map((x) => `<button class="row" data-k="${esc(x.key)}"><b>${esc(x.female) || "—"}</b> · eş: ${esc(x.male) || "—"}<div class="mut">${x.protocol_no ? "dosya " + esc(x.protocol_no) + " · " : ""}${x.records} kayıt · ${esc(x.first) || "?"} – ${esc(x.last) || "?"}${x.match_dates.length ? " · eşleşen tarih: " + esc(x.match_dates.join(", ")) : ""}</div></button>`).join("") : '<p class="mut">Eşleşen kayıt yok.</p>';
   document.querySelectorAll(".row").forEach((b) => (b.onclick = () => open(b.dataset.k)));
 }
 function open(key) {
